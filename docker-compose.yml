@@ -1,0 +1,86 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: mysql_db
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: mydb
+      MYSQL_USER: myuser
+      MYSQL_PASSWORD: mypass
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$$MYSQL_ROOT_PASSWORD"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:alpine
+    container_name: redis_broker
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  mock-service:
+    build:
+      context: ./mock-service
+      dockerfile: Dockerfile
+    container_name: mock_service
+    ports:
+      - "5000:5000"
+
+  fastapi-service:
+    build:
+      context: ./fastapi-service
+      dockerfile: Dockerfile
+    container_name: fastapi_service
+    ports:
+      - "8000:8000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - DB_HOST=mysql
+      - DB_USER=myuser
+      - DB_PASS=mypass
+      - DB_NAME=mydb
+      - REDIS_HOST=redis
+
+  celery-worker:
+    build:
+      context: ./fastapi-service  # FastAPI servis dizinini kullan
+      dockerfile: ../celery-worker/Dockerfile  # Celery Dockerfile'ının yolu
+    container_name: celery_worker
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - REDIS_HOST=redis
+      - DB_HOST=mysql
+      - DB_USER=myuser
+      - DB_PASS=mypass
+      - DB_NAME=mydb
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: react_frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - fastapi-service
+
+volumes:
+  mysql_data:
