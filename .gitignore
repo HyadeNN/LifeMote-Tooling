@@ -71,6 +71,7 @@ logs/
 # Local Development Tools
 list_absolute.py
 paths.txt
+temp.md
 
 # Database Volumes
 mysql_data/
