@@ -64,10 +64,6 @@ The Copyright Holder reserves the right to modify these terms at any time withou
 ## Governing Law
 This license shall be governed by the laws of Turkish Republic.
 
-## Signatures
-Authorized Signature: _____________________
-Date: ____________________
-
 ---
 
 IMPORTANT NOTICE:
