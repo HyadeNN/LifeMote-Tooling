@@ -1,7 +1,7 @@
 # Custom Restrictive Software License
 
 ## Copyright Notice
-© [Your Full Name/Company Name] [Current Year]
+© [Hüseyin Efe KAragöz / HyadeNN Design] [2025]
 All rights reserved.
 
 ## Definitions
