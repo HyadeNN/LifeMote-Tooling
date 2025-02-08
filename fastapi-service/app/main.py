@@ -1,4 +1,3 @@
-# File: fastapi-service/app/main.py
 from datetime import datetime
 from typing import List
 
@@ -17,6 +16,7 @@ from sqlalchemy.orm import Session
 from . import models, schemas
 from .celery_app import celery_app, deploy_service
 from .database import get_db
+from .health_service import HealthCheckService
 from .websocket import manager
 
 app = FastAPI()
@@ -60,19 +60,66 @@ async def service_websocket_endpoint(websocket: WebSocket, service_id: int):
 # REST API endpoints
 @app.post("/services/", response_model=schemas.Service)
 async def create_service(service: schemas.ServiceCreate, db: Session = Depends(get_db)):
-    db_service = models.Service(**service.dict())
     try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(f"{service.url}/health/info")
-            info = response.json()
-            db_service.current_version = info.get("version")
-            db_service.database_schema = info.get("database_schema")
-    except Exception as e:
-        raise HTTPException(status_code=400, detail="Service health check failed")
+        print(f"Received service creation request: {service.dict()}")  # Debug log
 
-    db.add(db_service)
-    db.commit()
-    db.refresh(db_service)
+        # Remove endpoint from base URL if it's already included
+        base_url = service.url
+        if service.healthEndpoint in base_url:
+            base_url = base_url.replace(service.healthEndpoint, "")
+        base_url = base_url.rstrip("/")
+
+        # Handle Docker network URLs
+        if "localhost:5000" in base_url:
+            base_url = base_url.replace("localhost:5000", "mock-service:5000")
+
+        # Create service with corrected URL
+        db_service = models.Service(
+            name=service.name,
+            url=base_url,
+            healthEndpoint=service.healthEndpoint,
+            response_format=service.response_format,
+        )
+
+        # Construct full URL for health check
+        full_url = f"{base_url}{service.healthEndpoint}"
+        print(f"Attempting health check at URL: {full_url}")  # Debug log
+
+        # Check service health and get info
+        health_info = await HealthCheckService.check_service_health(
+            full_url, service.response_format
+        )
+
+        if not health_info:
+            raise HTTPException(
+                status_code=400,
+                detail="Could not retrieve service information. Please check the URL and response format.",
+            )
+
+        print(f"Health check response: {health_info.dict()}")  # Debug log
+
+        db_service.current_version = health_info.release
+        db_service.database_schema = health_info.database_schema
+        db_service.last_check_at = datetime.utcnow()
+
+    except HTTPException as he:
+        print(f"HTTP Exception during service creation: {str(he)}")  # Debug log
+        raise he
+    except Exception as e:
+        print(f"Unexpected error during service creation: {str(e)}")  # Debug log
+        raise HTTPException(
+            status_code=400, detail=f"Service creation failed: {str(e)}"
+        )
+
+    try:
+        db.add(db_service)
+        db.commit()
+        db.refresh(db_service)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=400, detail="Service with this name already exists"
+        )
 
     # Notify clients about new service
     await manager.broadcast(

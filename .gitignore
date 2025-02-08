@@ -72,6 +72,7 @@ logs/
 list_absolute.py
 paths.txt
 temp.md
+base.md
 
 # Database Volumes
 mysql_data/

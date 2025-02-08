@@ -34,7 +34,12 @@ services:
       dockerfile: Dockerfile
     container_name: mock_service
     ports:
-      - "5000:5000"
+      - "5000:5000"  # dev için expose ettim 
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "http://localhost:5000/api/health/info"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
   fastapi-service:
     build:

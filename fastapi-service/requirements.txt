@@ -9,3 +9,5 @@ celery==5.3.4
 redis==4.5.1
 websockets==10.0
 wsproto==1.0.0
+jose==1.0.0
+semver==2.13.0
