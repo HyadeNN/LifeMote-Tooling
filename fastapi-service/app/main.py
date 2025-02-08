@@ -11,6 +11,7 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from . import models, schemas
@@ -61,7 +62,7 @@ async def service_websocket_endpoint(websocket: WebSocket, service_id: int):
 @app.post("/services/", response_model=schemas.Service)
 async def create_service(service: schemas.ServiceCreate, db: Session = Depends(get_db)):
     try:
-        print(f"Received service creation request: {service.dict()}")  # Debug log
+        print(f"Received service creation request: {service.dict()}")
 
         # Remove endpoint from base URL if it's already included
         base_url = service.url
@@ -83,9 +84,8 @@ async def create_service(service: schemas.ServiceCreate, db: Session = Depends(g
 
         # Construct full URL for health check
         full_url = f"{base_url}{service.healthEndpoint}"
-        print(f"Attempting health check at URL: {full_url}")  # Debug log
+        print(f"Attempting health check at URL: {full_url}")
 
-        # Check service health and get info
         health_info = await HealthCheckService.check_service_health(
             full_url, service.response_format
         )
@@ -96,17 +96,20 @@ async def create_service(service: schemas.ServiceCreate, db: Session = Depends(g
                 detail="Could not retrieve service information. Please check the URL and response format.",
             )
 
-        print(f"Health check response: {health_info.dict()}")  # Debug log
+        print(f"Health check response: {health_info.dict()}")
 
+        # Access schema value correctly
         db_service.current_version = health_info.release
-        db_service.database_schema = health_info.database_schema
+        db_service.database_schema = (
+            health_info.schema
+        )  # Using the alias defined in HealthResponse
         db_service.last_check_at = datetime.utcnow()
 
     except HTTPException as he:
-        print(f"HTTP Exception during service creation: {str(he)}")  # Debug log
+        print(f"HTTP Exception during service creation: {str(he)}")
         raise he
     except Exception as e:
-        print(f"Unexpected error during service creation: {str(e)}")  # Debug log
+        print(f"Unexpected error during service creation: {str(e)}")
         raise HTTPException(
             status_code=400, detail=f"Service creation failed: {str(e)}"
         )
@@ -121,7 +124,6 @@ async def create_service(service: schemas.ServiceCreate, db: Session = Depends(g
             status_code=400, detail="Service with this name already exists"
         )
 
-    # Notify clients about new service
     await manager.broadcast(
         {
             "type": "service_created",
@@ -212,6 +214,7 @@ def get_deployment_status(deployment_id: int, db: Session = Depends(get_db)):
         task = deploy_service.AsyncResult(deployment.task_id)
         if task.ready():
             result = task.get()
+            old_status = deployment.status
             deployment.status = result["status"]
             if deployment.status == models.DeploymentStatus.SUCCESS:
                 deployment.completed_at = datetime.utcnow()
@@ -223,20 +226,34 @@ def get_deployment_status(deployment_id: int, db: Session = Depends(get_db)):
                     .first()
                 )
                 service.current_version = deployment.version
-                db.commit()
 
-                # Send WebSocket update for successful deployment
+                # Broadcast status change via WebSocket
                 background_tasks.add_task(
                     manager.broadcast,
                     {
                         "type": "deployment_completed",
-                        "service_id": deployment.service_id,
                         "deployment_id": deployment.id,
-                        "status": "success",
+                        "service_id": deployment.service_id,
+                        "status": deployment.status,
                         "version": deployment.version,
                     },
                 )
-            db.commit()
+            elif deployment.status == models.DeploymentStatus.FAILED:
+                deployment.completed_at = datetime.utcnow()
+                # Broadcast failed status
+                background_tasks.add_task(
+                    manager.broadcast,
+                    {
+                        "type": "deployment_completed",
+                        "deployment_id": deployment.id,
+                        "service_id": deployment.service_id,
+                        "status": "failed",
+                        "error": result.get("error", "Unknown error"),
+                    },
+                )
+
+            if old_status != deployment.status:
+                db.commit()
 
     return {
         "status": deployment.status,

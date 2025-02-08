@@ -1,8 +1,12 @@
-import React, { useState, useEffect } from 'react';
-import { serviceApi, deploymentApi } from '../services/api';
+import React, { useState, useEffect, useCallback } from 'react';
+import { serviceApi } from '../services/api';
 import { Alert } from './Alert';
 import { Filter, RefreshCw } from 'lucide-react';
 import { useWebSocket } from '../hooks/useWebSocket';
+
+const AUTO_REFRESH_INTERVAL = 120000; // 2 minutes
+const POLLING_INTERVAL = 2000; // 2 seconds
+const POLLING_TIMEOUT = 60000; // 1 minute
 
 const StatusBadge = ({ status }) => {
     const styles = {
@@ -28,56 +32,15 @@ export const DeploymentList = () => {
         service: 'all',
         status: 'all'
     });
+    const [pollingDeployments, setPollingDeployments] = useState(new Set());
     const { isConnected, addMessageListener } = useWebSocket('ws://localhost:8000/ws');
 
-    // Load services and their deployments
-    useEffect(() => {
-        loadData();
-    }, []);
-
-    useEffect(() => {
-        addMessageListener((data) => {
-            switch (data.type) {
-                case 'deployment_started':
-                    // Yeni deployment ekle
-                    setDeployments(prev => [{
-                        id: data.deployment_id,
-                        service_id: data.service_id,
-                        version: data.version,
-                        status: 'in_progress',
-                        created_at: new Date().toISOString(),
-                        service_name: services.find(s => s.id === data.service_id)?.name
-                    }, ...prev]);
-                    break;
-
-                case 'deployment_update':
-                case 'deployment_completed':
-                    // Mevcut deployment'ı güncelle
-                    setDeployments(prev => prev.map(dep => 
-                        dep.id === data.deployment_id
-                            ? { 
-                                ...dep, 
-                                status: data.status,
-                                completed_at: data.status === 'success' ? new Date().toISOString() : null 
-                            }
-                            : dep
-                    ));
-                    break;
-
-                default:
-                    break;
-            }
-        });
-    }, [addMessageListener, services]);
-
-    const loadData = async () => {
+    const loadData = useCallback(async () => {
         try {
             setLoading(true);
-            // Load services first
             const servicesResponse = await serviceApi.getAllServices();
             setServices(servicesResponse.data);
 
-            // Load deployments for each service
             const deploymentsPromises = servicesResponse.data.map(service =>
                 serviceApi.getServiceDeployments(service.id)
             );
@@ -90,19 +53,92 @@ export const DeploymentList = () => {
                 }))
             );
 
-            // Sort by created_at desc
-            allDeployments.sort((a, b) => 
-                new Date(b.created_at) - new Date(a.created_at)
-            );
-
+            allDeployments.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
             setDeployments(allDeployments);
             setError(null);
         } catch (err) {
+            console.error('Error loading data:', err);
             setError(err.message);
         } finally {
             setLoading(false);
         }
-    };
+    }, []);
+
+    const pollDeployment = useCallback(async (deploymentId) => {
+        if (!pollingDeployments.has(deploymentId)) return null;
+
+        try {
+            const response = await serviceApi.getDeploymentStatus(deploymentId);
+            console.log(`Polling deployment ${deploymentId}:`, response.data);
+
+            if (response.data.status !== 'in_progress') {
+                setPollingDeployments(prev => {
+                    const next = new Set(prev);
+                    next.delete(deploymentId);
+                    return next;
+                });
+                await loadData();
+                return response.data.status;
+            }
+            return 'in_progress';
+        } catch (error) {
+            console.error(`Error polling deployment ${deploymentId}:`, error);
+            setPollingDeployments(prev => {
+                const next = new Set(prev);
+                next.delete(deploymentId);
+                return next;
+            });
+            return 'error';
+        }
+    }, [pollingDeployments, loadData]);
+
+    useEffect(() => {
+        loadData();
+    }, [loadData]);
+
+    // Auto refresh
+    useEffect(() => {
+        const intervalId = setInterval(() => {
+            loadData();
+        }, AUTO_REFRESH_INTERVAL);
+
+        return () => clearInterval(intervalId);
+    }, [loadData]);
+
+    // WebSocket handler
+    useEffect(() => {
+        const handleDeploymentUpdate = async (data) => {
+            console.log('WebSocket message received:', data);
+
+            if (data.type === 'deployment_started') {
+                setPollingDeployments(prev => new Set([...prev, data.deployment_id]));
+                
+                const startTime = Date.now();
+                const pollInterval = setInterval(async () => {
+                    if (Date.now() - startTime >= POLLING_TIMEOUT) {
+                        clearInterval(pollInterval);
+                        setPollingDeployments(prev => {
+                            const next = new Set(prev);
+                            next.delete(data.deployment_id);
+                            return next;
+                        });
+                        await loadData();
+                        return;
+                    }
+
+                    const status = await pollDeployment(data.deployment_id);
+                    if (status && status !== 'in_progress') {
+                        clearInterval(pollInterval);
+                    }
+                }, POLLING_INTERVAL);
+
+            } else if (data.type === 'deployment_completed' || data.type === 'deployment_update') {
+                await loadData();
+            }
+        };
+
+        addMessageListener(handleDeploymentUpdate);
+    }, [addMessageListener, loadData, pollDeployment]);
 
     const handleFilterChange = (key, value) => {
         setFilters(prev => ({

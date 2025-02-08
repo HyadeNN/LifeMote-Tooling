@@ -46,7 +46,7 @@ export const ServiceModal = ({ isOpen, onClose, onAdd }) => {
 
     const handleSubmit = () => {
         if (validateForm()) {
-            // Construct full URL
+            // Clean up URL and endpoint
             const baseUrl = formData.url.endsWith('/') 
                 ? formData.url.slice(0, -1) 
                 : formData.url;
@@ -56,8 +56,9 @@ export const ServiceModal = ({ isOpen, onClose, onAdd }) => {
             
             onAdd({
                 name: formData.name,
-                url: `${baseUrl}${endpoint}`,
-                responseFormat: formData.responseFormat
+                url: baseUrl,
+                healthEndpoint: endpoint,
+                response_format: formData.responseFormat
             });
             onClose();
         }

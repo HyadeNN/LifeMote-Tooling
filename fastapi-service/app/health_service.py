@@ -1,19 +1,26 @@
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
+
 import httpx
+
 from .models import ResponseFormat
 from .schemas import HealthResponse
 
+
 class HealthCheckService:
     @staticmethod
-    def parse_response(data: Dict[str, Any], format: ResponseFormat) -> Optional[HealthResponse]:
+    def parse_response(data: Dict[str, Any], format: str) -> Optional[HealthResponse]:
         try:
-            if format == ResponseFormat.AUTO:
+            if format == ResponseFormat.AUTO.value:
                 return HealthCheckService._auto_detect_and_parse(data)
-            
-            parser = getattr(HealthCheckService, f"_parse_{format.value}", None)
+
+            parser = getattr(HealthCheckService, f"_parse_{format}", None)
             if parser:
-                return parser(data)
-            
+                result = parser(data)
+                print(
+                    f"Parsed result: {result.dict() if result else None}"
+                )  # Debug log
+                return result
+
             return None
         except Exception as e:
             print(f"Parse error: {str(e)}")
@@ -25,16 +32,18 @@ class HealthCheckService:
         for format in ResponseFormat:
             if format == ResponseFormat.AUTO:
                 continue
-                
+
             parser = getattr(HealthCheckService, f"_parse_{format.value}", None)
             if parser:
                 try:
                     result = parser(data)
                     if result:
+                        print(f"Auto-detected format: {format.value}")
                         return result
-                except Exception:
+                except Exception as e:
+                    print(f"Parser {format.value} failed: {str(e)}")
                     continue
-        
+
         return None
 
     @staticmethod
@@ -43,7 +52,7 @@ class HealthCheckService:
             return HealthResponse(
                 platform=data["platform"],
                 release=data["release"],
-                database_schema=data["schema"]
+                schema=data["schema"],
             )
         return None
 
@@ -53,7 +62,7 @@ class HealthCheckService:
             return HealthResponse(
                 platform=data.get("platform"),
                 release=data["release"],
-                database_schema=data["schema"]
+                schema=data["schema"],
             )
         return None
 
@@ -61,9 +70,7 @@ class HealthCheckService:
     def _parse_simple(data: Dict[str, Any]) -> Optional[HealthResponse]:
         if "version" in data and "db_version" in data:
             return HealthResponse(
-                platform=None,
-                release=data["version"],
-                database_schema=data["db_version"]
+                platform=None, release=data["version"], schema=data["db_version"]
             )
         return None
 
@@ -74,7 +81,7 @@ class HealthCheckService:
             return HealthResponse(
                 platform=service.get("platform_version"),
                 release=service["version"],
-                database_schema=service["database"]["schema_version"]
+                schema=service["database"]["schema_version"],
             )
         except KeyError:
             return None
@@ -85,18 +92,22 @@ class HealthCheckService:
             return HealthResponse(
                 platform=data.get("runtime"),
                 release=data["app_version"],
-                database_schema=data["db"]
+                schema=data["db"],
             )
         return None
 
     @staticmethod
-    async def check_service_health(url: str, format: ResponseFormat) -> Optional[HealthResponse]:
+    async def check_service_health(url: str, format: str) -> Optional[HealthResponse]:
         try:
+            print(f"Checking health for URL: {url} with format: {format}")
             async with httpx.AsyncClient() as client:
                 response = await client.get(url, timeout=5.0)
                 response.raise_for_status()
                 data = response.json()
-                return HealthCheckService.parse_response(data, format)
+                print(f"Received response: {data}")
+                result = HealthCheckService.parse_response(data, format)
+                print(f"Final parsed result: {result.dict() if result else None}")
+                return result
         except Exception as e:
             print(f"Health check failed for {url}: {str(e)}")
             return None

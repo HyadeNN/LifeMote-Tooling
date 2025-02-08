@@ -91,7 +91,7 @@ export const ServicesList = () => {
                 />
             )}
 
-            <div className="overflow-x-auto">
+<div className="overflow-x-auto">
                 <table className="min-w-full bg-white rounded-lg shadow">
                     <thead className="bg-gray-100">
                         <tr>
@@ -115,7 +115,7 @@ export const ServicesList = () => {
                                     <td className="py-3 px-4">{service.name}</td>
                                     <td className="py-3 px-4">{service.url}</td>
                                     <td className="py-3 px-4">{service.current_version || 'N/A'}</td>
-                                    <td className="py-3 px-4">{service.database_schema || 'N/A'}</td>
+                                    <td className="py-3 px-4">{service.schema || service.database_schema || 'N/A'}</td>
                                     <td className="py-3 px-4">
                                         <button 
                                             className="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600"
@@ -130,7 +130,7 @@ export const ServicesList = () => {
                     </tbody>
                 </table>
             </div>
-
+            
             {/* Deployment Modal */}
             <DeploymentModal 
                 isOpen={isDeployModalOpen}

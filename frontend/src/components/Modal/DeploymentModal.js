@@ -6,24 +6,58 @@ export const DeploymentModal = ({ isOpen, onClose, onDeploy, currentVersion = '1
     const [customVersion, setCustomVersion] = useState('');
     const [isCustom, setIsCustom] = useState(false);
 
+    const parseVersion = (version) => {
+        // Check if it's a pre-release version
+        const preReleaseMatch = version.match(/^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/);
+        if (!preReleaseMatch) return null;
+
+        const [, major, minor, patch, preRelease] = preReleaseMatch;
+        return {
+            major: parseInt(major),
+            minor: parseInt(minor),
+            patch: parseInt(patch),
+            preRelease
+        };
+    };
+
     const calculateNewVersion = () => {
         if (isCustom) return customVersion;
 
-        const [major, minor, patch] = currentVersion.split('.').map(Number);
+        const parsed = parseVersion(currentVersion);
+        if (!parsed) return currentVersion;
+
+        const { major, minor, patch, preRelease } = parsed;
+
+        // If it's a pre-release version and not using custom version,
+        // remove pre-release tag and use the base version
+        let newVersion;
         switch (versionType) {
             case 'major':
-                return `${major + 1}.0.0`;
+                newVersion = `${major + 1}.0.0`;
+                break;
             case 'minor':
-                return `${major}.${minor + 1}.0`;
+                newVersion = `${major}.${minor + 1}.0`;
+                break;
             case 'patch':
-                return `${major}.${minor}.${patch + 1}`;
+                newVersion = `${major}.${minor}.${patch + 1}`;
+                break;
             default:
-                return currentVersion;
+                newVersion = currentVersion;
         }
+
+        return newVersion;
     };
 
     const handleDeploy = () => {
-        onDeploy(calculateNewVersion());
+        const newVersion = calculateNewVersion();
+        if (newVersion === currentVersion) {
+            window.showToast?.({
+                type: 'error',
+                message: 'New version must be different from current version'
+            });
+            return;
+        }
+        onDeploy(newVersion);
         onClose();
     };
 

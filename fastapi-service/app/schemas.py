@@ -15,7 +15,11 @@ class ServiceBase(BaseModel):
 
 class ServiceCreate(ServiceBase):
     class Config:
-        use_enum_values = True  # This ensures enum is serialized properly
+        use_enum_values = True
+        allow_population_by_field_name = True
+        alias_generator = lambda x: "".join(
+            word.capitalize() if i else word for i, word in enumerate(x.split("_"))
+        )
 
 
 class ServiceUpdate(ServiceBase):
@@ -47,7 +51,7 @@ class Deployment(DeploymentBase):
 class Service(ServiceBase):
     id: int
     current_version: Optional[str] = None
-    database_schema: Optional[str] = Field(None, alias="schema")  # Fix for schema name
+    database_schema: Optional[str] = Field(None, alias="schema")
     created_at: datetime
     last_check_at: Optional[datetime] = None
     deployments: List[Deployment] = []
@@ -60,7 +64,7 @@ class Service(ServiceBase):
 class HealthResponse(BaseModel):
     platform: Optional[str] = None
     release: str
-    database_schema: str = Field(alias="schema")  # Fix for schema name
+    database_schema: str = Field(alias="schema")
 
     class Config:
         allow_population_by_field_name = True

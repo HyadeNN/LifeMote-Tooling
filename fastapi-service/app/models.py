@@ -33,10 +33,21 @@ class Service(Base):
     healthEndpoint = Column(String(100), default="/api/health/info")
     response_format = Column(Enum(ResponseFormat), default=ResponseFormat.AUTO)
     current_version = Column(String(50))
-    database_schema = Column(String(50))
+    database_schema = Column(String(100))
     created_at = Column(DateTime, default=datetime.utcnow)
     last_check_at = Column(DateTime, nullable=True)
     deployments = relationship("Deployment", back_populates="service")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "name": self.name,
+            "url": self.url,
+            "current_version": self.current_version,
+            "schema": self.database_schema,  # Renamed for frontend
+            "created_at": self.created_at,
+            "last_check_at": self.last_check_at,
+        }
 
 
 class Deployment(Base):

@@ -40,9 +40,9 @@ def deploy_service(service_id: int, service_url: str, new_version: str):
     4. Service update
     5. Health check
     """
-    # Get current service info
     try:
         with httpx.Client() as client:
+            # Get current service info
             response = client.get(f"{service_url}/api/health/info")
             current_info = response.json()
 
@@ -53,39 +53,31 @@ def deploy_service(service_id: int, service_url: str, new_version: str):
                     "error": "Invalid version upgrade",
                 }
 
-            # Simulate pre-deployment checks (2 seconds)
-            time.sleep(2)
+            # Simulate deployment process
+            time.sleep(2)  # Pre-deployment checks
+            time.sleep(3)  # Backup
+            time.sleep(4)  # Schema migration
 
-            # Simulate backup process (3 seconds)
-            time.sleep(3)
-
-            # Simulate schema migration (4 seconds)
-            time.sleep(4)
-            new_schema = f"schema_{new_version.replace('.', '_')}"
-
-            # Simulate service update (5 seconds)
-            time.sleep(5)
-
-            # Update service with new version and schema
-            update_payload = {
-                "platform": current_info["platform"],
-                "release": new_version,
-                "schema": new_schema,
-            }
-
-            update_response = client.post(
-                f"{service_url}/api/update", json=update_payload
-            )
-
-            if update_response.status_code != 200:
+            # Update service
+            try:
+                update_response = client.post(
+                    f"{service_url}/api/update",
+                    json={
+                        "platform": current_info["platform"],
+                        "release": new_version,
+                        "schema": f"schema_{new_version.replace('.', '_')}",
+                    },
+                )
+                update_response.raise_for_status()
+            except Exception as e:
                 return {
                     "status": DeploymentStatus.FAILED.value,
-                    "error": "Failed to update service",
+                    "error": f"Failed to update service: {str(e)}",
                 }
 
             # Final health check
-            final_check = client.get(f"{service_url}/api/health/info")
-            final_info = final_check.json()
+            check_response = client.get(f"{service_url}/api/health/info")
+            final_info = check_response.json()
 
             if final_info["release"] != new_version:
                 return {
@@ -93,7 +85,13 @@ def deploy_service(service_id: int, service_url: str, new_version: str):
                     "error": "Version mismatch after deployment",
                 }
 
-            return {"status": DeploymentStatus.SUCCESS.value, "info": final_info}
+            return {
+                "status": DeploymentStatus.SUCCESS.value,
+                "info": final_info,
+            }
 
     except Exception as e:
-        return {"status": DeploymentStatus.FAILED.value, "error": str(e)}
+        return {
+            "status": DeploymentStatus.FAILED.value,
+            "error": str(e),
+        }
